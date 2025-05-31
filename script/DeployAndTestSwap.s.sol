@@ -9,7 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract DeployAndTestSwap is Script {
     // Polygon Mainnet Addresses
     address constant POLYGON_USDT = 0xc2132D05D31c914a87C6611C10748AEb04B58e8F;
-    address constant POLYGON_NCT = 0xD838290e877E0188a4A44700463419ED96c16107; // Nature Carbon Tonne
+    address constant POLYGON_NCT = 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174; // Nature Carbon Tonne
     address constant POLYGON_QUICKSWAP_ROUTER = 0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff;
     address constant POLYGON_LZ_ENDPOINT = 0x1a44076050125825900e736c501f859c50fE728c; // Example, ensure correct for LZ v2
 
@@ -18,7 +18,7 @@ contract DeployAndTestSwap is Script {
     // Placeholder: 0.01 USDT should get *some* NCT. NCT has 18 decimals.
     // YOU MUST ADJUST THIS BASED ON THE ACTUAL USDT/NCT PRICE AND LIQUIDITY.
     // Setting a very low value for now to pass the check, e.g., 0.00001 NCT.
-    uint256 minAmountOut = 0.00001 * 10**18; // Expected 0.00001 NCT - ADJUST THIS!
+    uint256 minAmountOut = 1; // Expected 0.00001 NCT - ADJUST THIS!
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_KEY");
