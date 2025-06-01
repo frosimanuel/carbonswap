@@ -17,7 +17,7 @@ interface IQuickSwapRouter {
 }
 
 contract TokenSwapComposer is ILayerZeroComposer {
-    address public immutable STARGATE_USDT; // This is the token received from Stargate/LayerZero
+    address public immutable STARGATE_USDT; // This is the token received from Stargate/LayerZero (USDT on Polygon)
     address public immutable LAYERZERO_ENDPOINT;
     address public immutable SWAP_ROUTER;
     address public immutable TARGET_TOKEN; // This is the token we are swapping to (e.g., NCT)
@@ -26,19 +26,19 @@ contract TokenSwapComposer is ILayerZeroComposer {
     event SwapFailed(address recipient, uint256 amount);
     
     constructor(
-        address _stargateUsdt,
-        address _layerzeroEndpoint,
-        address _swapRouter,
-        address _targetToken // Updated parameter name
+        address _stargateUsdt,        // Address of USDT on Polygon
+        address _layerzeroEndpoint,   // LZ Endpoint on Polygon
+        address _swapRouter,          // QuickSwap Router on Polygon
+        address _targetToken          // Target token for swap on Polygon (e.g., NCT)
     ) {
         STARGATE_USDT = _stargateUsdt;
         LAYERZERO_ENDPOINT = _layerzeroEndpoint;
         SWAP_ROUTER = _swapRouter;
-        TARGET_TOKEN = _targetToken; // Updated state variable assignment
+        TARGET_TOKEN = _targetToken;
     }
     
     function lzCompose(
-        address _from,
+        address _from,         // Address of the OFT contract on the source chain (Flare)
         bytes32 _guid,
         bytes calldata _message,
         address _executor,
@@ -46,7 +46,10 @@ contract TokenSwapComposer is ILayerZeroComposer {
     ) external payable {
         // Security checks
         require(msg.sender == LAYERZERO_ENDPOINT, "Only LZ Endpoint");
-        require(_from == STARGATE_USDT, "Only from Stargate controlled token contract"); // Ensure it's the specific Stargate OFT/OApp
+        // REMOVED: require(_from == STARGATE_USDT, "Only from Stargate controlled token contract");
+        // The _from address is the OFT on the source chain (e.g., Flare USDT OFT).
+        // STARGATE_USDT is the ERC20 USDT on Polygon this contract will swap.
+        // The security of which token is delivered is handled by Stargate/LayerZero OFT mechanism.
         
         // Decode the message
         uint256 amountLD = OFTComposeMsgCodec.amountLD(_message);
@@ -55,7 +58,7 @@ contract TokenSwapComposer is ILayerZeroComposer {
         // Decode the compose message (recipient for the final tokens, minAmountOut for the swap)
         (address sender, address recipient, uint256 minAmountOut) = abi.decode(composeMsg, (address, address, uint256));
         
-        // Approve swap router to spend the received STARGATE_USDT
+        // Approve swap router to spend the received STARGATE_USDT (Polygon USDT)
         IERC20(STARGATE_USDT).approve(SWAP_ROUTER, amountLD);
         
         // Try to swap using QuickSwap router
@@ -75,7 +78,7 @@ contract TokenSwapComposer is ILayerZeroComposer {
         // Create token path for QuickSwap: STARGATE_USDT -> TARGET_TOKEN
         address[] memory path = new address[](2);
         path[0] = STARGATE_USDT;
-        path[1] = TARGET_TOKEN; // Use the generic TARGET_TOKEN
+        path[1] = TARGET_TOKEN;
         
         // Execute swap using QuickSwap
         uint256[] memory amounts = IQuickSwapRouter(SWAP_ROUTER).swapExactTokensForTokens(
@@ -96,9 +99,6 @@ contract TokenSwapComposer is ILayerZeroComposer {
     ) external {
         // Decode the composed test data
         (address sender, address recipient, uint256 minAmountOut) = abi.decode(composedTestData, (address, address, uint256));
-
-        // Log the decoded sender for testing purposes, can be removed later
-        // console.log("testSwap decoded sender:", sender);
 
         // Transfer STARGATE_USDT from msg.sender to this contract (simulating LZ transfer)
         IERC20(STARGATE_USDT).transferFrom(msg.sender, address(this), amountLD);

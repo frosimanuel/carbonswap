@@ -11,7 +11,7 @@
 
 #!.yarn/cache
 .pnp.*
-
+lib/forge-std
 # Environment variables
 .env
 
