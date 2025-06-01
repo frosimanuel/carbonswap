@@ -1,6 +1,6 @@
 # CarbonSwap: Polygon Smart Contract for NCT Acquisition
 
-This repository houses `TokenSwapComposer.sol`, a Solidity smart contract designed to operate on the Polygon network. It acts as the destination-chain component in the [CarbonOffset platform's](https://github.com/deca12x/CarbonOffset/) cross-chain workflow, automatically swapping bridged assets (USDT) for tokenized carbon credits (NCT - Nature Carbon Tonne).
+This repository houses `TokenSwapComposer.sol`, a Solidity smart contract designed to operate on the Polygon network. It acts as the destination-chain component in the [LayerGreen platform's](https://github.com/deca12x/CarbonOffset/) cross-chain workflow, automatically swapping bridged assets (USDT) for tokenized carbon credits (NCT - Nature Carbon Tonne).
 
 **Our Vision:** To provide a transparent and automated mechanism on Polygon for converting bridged funds into tangible, verifiable carbon offsets, completing the user's journey to neutralize their carbon footprint.
 
@@ -38,11 +38,6 @@ This contract is a key part of the **LayerZero Composability Track**, demonstrat
     *   The `composeMsg` is further decoded to get the `sender` (original initiator on Flare), `recipient` (final NCT recipient on Polygon), and `minAmountOut` (minimum NCT expected from the swap).
     *   Approves the `SWAP_ROUTER` to spend the received USDT.
     *   Calls `executeSwap` to perform the token exchange.
-*   **`executeSwap(uint256 amountIn, uint256 minAmountOut, address recipient)`:**
-    *   Internal function (callable by `lzCompose` or `testSwap`) that performs the actual swap.
-    *   Constructs the token path (USDT -> NCT).
-    *   Calls `swapExactTokensForTokens` on the `SWAP_ROUTER`.
-    *   Returns the amount of `TARGET_TOKEN` (NCT) received.
 *   **`testSwap(uint256 amountLD, bytes calldata composedTestData)`:**
     *   A public function for testing purposes.
     *   Allows an EOA to simulate the `lzCompose` flow by transferring USDT to the contract and then calling this function with encoded recipient and `minAmountOut` data.
