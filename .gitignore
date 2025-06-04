@@ -32,3 +32,4 @@ broadcast/
 
 # macOS
 .DS_Store
+/lib /lib32 /lib64 /lib.usr-is-merged /libx32

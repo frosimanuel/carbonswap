@@ -5,118 +5,116 @@ import {ILayerZeroComposer} from "@layerzerolabs/lz-evm-protocol-v2/contracts/in
 import {OFTComposeMsgCodec} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oft/libs/OFTComposeMsgCodec.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-// QuickSwap Router interface (Uniswap V2 style)
-interface IQuickSwapRouter {
-    function swapExactTokensForTokens(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external returns (uint256[] memory amounts);
-}
+// Standard imports for Uniswap V3 Periphery contracts
+import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 
 contract TokenSwapComposer is ILayerZeroComposer {
-    address public immutable STARGATE_USDT; // This is the token received from Stargate/LayerZero (USDT on Polygon)
-    address public immutable LAYERZERO_ENDPOINT;
-    address public immutable SWAP_ROUTER;
-    address public immutable TARGET_TOKEN; // This is the token we are swapping to (e.g., NCT)
+    address public immutable STARGATE_USDT;      // The Stargate OFT USDT token address on Polygon (Input Token)
+    address public immutable USDC_TOKEN;         // Address for USDC on Polygon (Intermediate Token)
+    address public immutable TARGET_TOKEN;       // The final token to swap to (e.g., NCT)
     
-    event SwapCompleted(address recipient, uint256 amountIn, uint256 amountOut);
-    event SwapFailed(address recipient, uint256 amount);
-    
+    address public immutable LAYERZERO_ENDPOINT; // LayerZero Endpoint on Polygon
+    address public immutable SWAP_ROUTER;        // Uniswap V3 SwapRouter02 address on Polygon
+
+    uint24  public immutable USDT_USDC_POOL_FEE; // Uniswap V3 Pool Fee for STARGATE_USDT -> USDC_TOKEN
+    uint24  public immutable USDC_NCT_POOL_FEE;  // Uniswap V3 Pool Fee for USDC_TOKEN -> TARGET_TOKEN (NCT)
+
+    event SwapCompleted(address indexed recipient, uint256 amountIn, uint256 amountOutNCT);
+    event SwapFailed(address indexed recipient, uint256 amount, bytes reason);
+
     constructor(
-        address _stargateUsdt,        // Address of USDT on Polygon
-        address _layerzeroEndpoint,   // LZ Endpoint on Polygon
-        address _swapRouter,          // QuickSwap Router on Polygon
-        address _targetToken          // Target token for swap on Polygon (e.g., NCT)
+        address _stargateUsdt,       // e.g., 0xc2132D05D31c914a87C6611C10748AEb04B58e8F (Polygon USDT)
+        address _usdcToken,          // e.g., 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359 (Polygon USDC.e)
+        address _targetToken,        // e.g., 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174 (Polygon NCT)
+        address _layerzeroEndpoint,
+        address _swapRouter,         // e.g., 0xE592427A0AEce92De3Edee1F18E0157C05861564 (Polygon V3 SwapRouter02)
+        uint24  _usdtUsdcPoolFee,    // e.g., 500 (0.05%) or 100 (0.01%)
+        uint24  _usdcNctPoolFee      // e.g., 2500 (0.25%)
     ) {
         STARGATE_USDT = _stargateUsdt;
+        USDC_TOKEN = _usdcToken;
+        TARGET_TOKEN = _targetToken;
         LAYERZERO_ENDPOINT = _layerzeroEndpoint;
         SWAP_ROUTER = _swapRouter;
-        TARGET_TOKEN = _targetToken;
+        USDT_USDC_POOL_FEE = _usdtUsdcPoolFee;
+        USDC_NCT_POOL_FEE = _usdcNctPoolFee;
     }
-    
+
     function lzCompose(
-        address _from,         // Address of the OFT contract on the source chain (Flare)
+        address _from, 
         bytes32 _guid,
         bytes calldata _message,
         address _executor,
         bytes calldata _extraData
     ) external payable {
-        // Security checks
-        require(msg.sender == LAYERZERO_ENDPOINT, "Only LZ Endpoint");
-        // REMOVED: require(_from == STARGATE_USDT, "Only from Stargate controlled token contract");
-        // The _from address is the OFT on the source chain (e.g., Flare USDT OFT).
-        // STARGATE_USDT is the ERC20 USDT on Polygon this contract will swap.
-        // The security of which token is delivered is handled by Stargate/LayerZero OFT mechanism.
-        
-        // Decode the message
+        require(msg.sender == LAYERZERO_ENDPOINT, "TokenSwapComposer: Only LayerZero Endpoint");
+
         uint256 amountLD = OFTComposeMsgCodec.amountLD(_message);
         bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(_message);
         
-        // Decode the compose message (recipient for the final tokens, minAmountOut for the swap)
-        (address sender, address recipient, uint256 minAmountOut) = abi.decode(composeMsg, (address, address, uint256));
-        
-        // Approve swap router to spend the received STARGATE_USDT (Polygon USDT)
-        IERC20(STARGATE_USDT).approve(SWAP_ROUTER, amountLD);
-        
-        // Try to swap using QuickSwap router
-        try this.executeSwap(amountLD, minAmountOut, recipient) returns (uint256 amountOut) {
-            emit SwapCompleted(recipient, amountLD, amountOut);
-        } catch {
-            // If swap fails, send the original STARGATE_USDT directly to recipient
-            IERC20(STARGATE_USDT).transfer(recipient, amountLD);
-            emit SwapFailed(recipient, amountLD);
-        }
-    }
-    
-    // Separate function to isolate try/catch, called by lzCompose and testSwap
-    function executeSwap(uint256 amountIn, uint256 minAmountOut, address recipient) external returns (uint256) {
-        require(msg.sender == address(this), "Only self via lzCompose or testSwap");
-        
-        // Create token path for QuickSwap: STARGATE_USDT -> TARGET_TOKEN
-        address[] memory path = new address[](2);
-        path[0] = STARGATE_USDT;
-        path[1] = TARGET_TOKEN;
-        
-        // Execute swap using QuickSwap
-        uint256[] memory amounts = IQuickSwapRouter(SWAP_ROUTER).swapExactTokensForTokens(
-            amountIn,
-            minAmountOut,
-            path,
-            recipient, // The recipient of the TARGET_TOKEN
-            block.timestamp + 300 // 5 minutes deadline
-        );
-        
-        return amounts[1]; // Return amount of TARGET_TOKEN received
-    }
-    
-    // For testing purposes - simulates receiving tokens and executing swap
-    function testSwap(
-        uint256 amountLD,    // Amount of STARGATE_USDT to swap
-        bytes calldata composedTestData // Encoded (sender, recipient, minAmountOut)
-    ) external {
-        // Decode the composed test data
-        (address sender, address recipient, uint256 minAmountOut) = abi.decode(composedTestData, (address, address, uint256));
+        (address senderOnSourceChain, address finalRecipient, uint256 minAmountOutNCT) = abi.decode(composeMsg, (address, address, uint256));
 
-        // Transfer STARGATE_USDT from msg.sender to this contract (simulating LZ transfer)
-        IERC20(STARGATE_USDT).transferFrom(msg.sender, address(this), amountLD);
-        
-        // Approve router to spend the STARGATE_USDT held by this contract
-        IERC20(STARGATE_USDT).approve(SWAP_ROUTER, amountLD);
-        
-        // Try to swap
-        try this.executeSwap(amountLD, minAmountOut, recipient) returns (uint256 amountOut) {
-            emit SwapCompleted(recipient, amountLD, amountOut);
-        } catch {
-            // If swap fails, send the original STARGATE_USDT (now held by this contract) directly to recipient
-            IERC20(STARGATE_USDT).transfer(recipient, amountLD);
-            emit SwapFailed(recipient, amountLD);
+        try this.executeSwap(amountLD, minAmountOutNCT, finalRecipient) returns (uint256 amountOutNCT) {
+            emit SwapCompleted(finalRecipient, amountLD, amountOutNCT);
+        } catch (bytes memory reason) {
+            TransferHelper.safeTransfer(STARGATE_USDT, finalRecipient, amountLD);
+            emit SwapFailed(finalRecipient, amountLD, reason);
         }
     }
-    
-    // Allow receiving ETH (e.g., for gas refunds from LZ if configured)
+
+    function executeSwap(
+        uint256 amountInUSDT,
+        uint256 minAmountOutNCT, 
+        address recipient
+    ) external returns (uint256 amountOutNCT) {
+        require(msg.sender == address(this), "TokenSwapComposer: Only self via lzCompose or testSwap");
+
+        TransferHelper.safeApprove(STARGATE_USDT, SWAP_ROUTER, amountInUSDT);
+
+        bytes memory path = abi.encodePacked(
+            STARGATE_USDT,
+            USDT_USDC_POOL_FEE,
+            USDC_TOKEN,
+            USDC_NCT_POOL_FEE,
+            TARGET_TOKEN
+        );
+
+        ISwapRouter.ExactInputParams memory params =
+            ISwapRouter.ExactInputParams({
+                path: path,
+                recipient: recipient,
+                deadline: block.timestamp + 300, // 5 minutes
+                amountIn: amountInUSDT,
+                amountOutMinimum: minAmountOutNCT
+            });
+
+        amountOutNCT = ISwapRouter(SWAP_ROUTER).exactInput(params);
+
+        require(amountOutNCT >= minAmountOutNCT, "TokenSwapComposer: Insufficient NCT output");
+
+        // Optional: Reset approval if desired, though exactInput should consume the specified amountIn or revert.
+        // TransferHelper.safeApprove(STARGATE_USDT, SWAP_ROUTER, 0);
+
+        return amountOutNCT;
+    }
+
+    function testSwap(
+        uint256 amountToSwapUSDT,
+        bytes calldata composedTestData // Encoded (address senderOnSourceChain, address finalRecipient, uint256 minAmountOutNCT)
+    ) external {
+        (address senderOnSourceChain, address finalRecipient, uint256 minAmountOutNCT) = abi.decode(composedTestData, (address, address, uint256));
+
+        TransferHelper.safeTransferFrom(STARGATE_USDT, msg.sender, address(this), amountToSwapUSDT);
+
+        try this.executeSwap(amountToSwapUSDT, minAmountOutNCT, finalRecipient) returns (uint256 amountOutNCT) {
+            emit SwapCompleted(finalRecipient, amountToSwapUSDT, amountOutNCT);
+        } catch (bytes memory reason) {
+            TransferHelper.safeTransfer(STARGATE_USDT, finalRecipient, amountToSwapUSDT);
+            emit SwapFailed(finalRecipient, amountToSwapUSDT, reason);
+        }
+    }
+
     receive() external payable {}
 } 
 
