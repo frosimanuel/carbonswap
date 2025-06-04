@@ -9,7 +9,7 @@ contract DeployAndTestSwap is Script {
     // Polygon Mainnet Addresses
     address constant POLYGON_STARGATE_USDT = 0xc2132D05D31c914a87C6611C10748AEb04B58e8F; // Input USDT (ensure this is the one your contract receives)
     address constant POLYGON_USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;          // Bridged USDC (USDC.e)
-    address constant POLYGON_NCT = 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174;           // Nature Carbon Tonne (Target Token)
+    address constant POLYGON_NCT = 0xD838290e877E0188a4A44700463419ED96c16107;           // Nature Carbon Tonne (Target Token)
     
     address constant POLYGON_UNISWAP_V3_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 SwapRouter02
     address constant POLYGON_LZ_ENDPOINT = 0x1a44076050125825900e736c501f859c50fE728c;       // Ensure correct for LZ v2 on Polygon
